@@ -47,3 +47,7 @@ wandb/
 
 .codex
 others/
+logs/
+.agents
+GEMINI.md
+python-scripts/

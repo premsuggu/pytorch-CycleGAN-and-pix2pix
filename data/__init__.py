@@ -85,7 +85,16 @@ class CustomDatasetDataLoader:
             self.sampler = None
             shuffle = not opt.serial_batches
 
-        self.dataloader = torch.utils.data.DataLoader(self.dataset, batch_size=opt.batch_size, shuffle=shuffle, sampler=self.sampler, num_workers=int(opt.num_threads))
+        self.dataloader = torch.utils.data.DataLoader(
+            self.dataset,
+            batch_size=opt.batch_size,
+            shuffle=shuffle,
+            sampler=self.sampler,
+            num_workers=int(opt.num_threads),
+            multiprocessing_context="fork" if int(opt.num_threads) > 0 else None,
+            # 'fork' is required for Python 3.14: the new default 'forkserver'
+            # cannot pickle torchvision.transforms.Lambda (anonymous lambdas).
+        )
 
     def load_data(self):
         return self
