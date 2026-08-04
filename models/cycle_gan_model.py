@@ -3,6 +3,7 @@ import itertools
 from util.image_pool import ImagePool
 from .base_model import BaseModel
 from . import networks
+from pytorch_msssim import SSIM
 
 
 class CycleGANModel(BaseModel):
@@ -41,13 +42,9 @@ class CycleGANModel(BaseModel):
         if is_train:
             parser.add_argument("--lambda_A", type=float, default=10.0, help="weight for cycle loss (A -> B -> A)")
             parser.add_argument("--lambda_B", type=float, default=10.0, help="weight for cycle loss (B -> A -> B)")
-            parser.add_argument(
-                "--lambda_identity",
-                type=float,
-                default=0.5,
-                help="use identity mapping. Setting lambda_identity other than 0 has an effect of scaling the weight of the identity mapping loss. For example, if the weight of the identity loss should be 10 times smaller than the weight of the reconstruction loss, please set lambda_identity = 0.1",
-            )
+            parser.add_argument("--lambda_identity", type=float, default=0.5, help="use identity mapping. Setting lambda_identity other than 0 has an effect of scaling the weight of the identity mapping loss.")
             parser.add_argument("--lambda_L1", type=float, default=0.0, help="weight for supervised L1 loss (requires perfectly paired datasets e.g., dataset_mode=paired_cyclegan)")
+            parser.add_argument("--lambda_SSIM", type=float, default=0.0, help="weight for supervised SSIM loss (requires perfectly paired datasets)")
 
 
         return parser
@@ -63,6 +60,8 @@ class CycleGANModel(BaseModel):
         self.loss_names = ["D_A", "G_A", "cycle_A", "idt_A", "D_B", "G_B", "cycle_B", "idt_B"]
         if getattr(self.opt, 'lambda_L1', 0.0) > 0.0:
             self.loss_names += ["L1_A", "L1_B"]
+        if getattr(self.opt, 'lambda_SSIM', 0.0) > 0.0:
+            self.loss_names += ["SSIM_A", "SSIM_B"]
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         visual_names_A = ["real_A", "fake_B", "rec_A"]
         visual_names_B = ["real_B", "fake_A", "rec_B"]
@@ -97,6 +96,7 @@ class CycleGANModel(BaseModel):
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
             self.criterionL1 = torch.nn.L1Loss()
+            self.criterionSSIM = SSIM(data_range=2.0, size_average=True, channel=opt.output_nc).to(self.device)
 
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -191,8 +191,18 @@ class CycleGANModel(BaseModel):
             self.loss_L1_A = 0
             self.loss_L1_B = 0
 
+        # Supervised SSIM loss (only active when lambda_SSIM > 0)
+        lambda_SSIM = getattr(self.opt, 'lambda_SSIM', 0.0)
+        if lambda_SSIM > 0.0:
+            # SSIM returns a value between 0 and 1 (1 is perfect similarity). We want to minimize (1 - SSIM).
+            self.loss_SSIM_A = (1.0 - self.criterionSSIM(self.fake_B, self.real_B)) * lambda_SSIM
+            self.loss_SSIM_B = (1.0 - self.criterionSSIM(self.fake_A, self.real_A)) * lambda_SSIM
+        else:
+            self.loss_SSIM_A = 0
+            self.loss_SSIM_B = 0
+
         # combined loss and calculate gradients
-        self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B + self.loss_L1_A + self.loss_L1_B
+        self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B + self.loss_L1_A + self.loss_L1_B + self.loss_SSIM_A + self.loss_SSIM_B
         self.loss_G.backward()
 
     def optimize_parameters(self):
