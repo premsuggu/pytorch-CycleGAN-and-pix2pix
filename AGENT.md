@@ -120,7 +120,7 @@ Key values **must not be changed without good reason**:
 | `netG` | `resnet_9blocks` | 9-block ResNet generator (11.4M params) |
 | `netD` | `basic` | 70×70 PatchGAN discriminator (2.8M params) |
 | `norm` | `instance` | instance norm standard for CycleGAN |
-| `batch_size` | `4` | set in dlri.ipynb |
+| `batch_size` | `1` | must be 1 (instance norm causes blurriness if >1) |
 | `load_size` | `512` | scale images to this before crop |
 | `crop_size` | `256` | final training resolution |
 | `preprocess` | `scale_width_and_crop` | |
@@ -183,11 +183,11 @@ python python-scripts/train_cyclegan.py --smoke_test
 | `retinal_alignment.ipynb` | Original alignment notebook (DICOM-based, superseded) |
 | `align_png.py` | PNG alignment script (adapted from above) |
 | `train_cyclegan.py` | Standalone training script (adapted from dlri.ipynb) |
-| `submit_train.sh` | SLURM GPU job script |
-| `models/cycle_gan_model.py` | CycleGAN model definition |
+| `submit_train_unaligned.sh` | SLURM GPU job script for unaligned/fresh models |
+| `models/cycle_gan_model.py` | CycleGAN model definition (now supports `--lambda_L1` & `--lambda_SSIM`) |
 | `models/networks.py` | Generator + Discriminator architectures |
 | `data/unaligned_dataset.py` | Dataset loader |
-| `compute_metrics.py` | SSIM / LPIPS evaluation |
+| `compute_metrics.py` | Dynamic SSIM / PSNR / LPIPS evaluation across full directories |
 | `docs/topodlri/` | Project documentation |
 
 ---

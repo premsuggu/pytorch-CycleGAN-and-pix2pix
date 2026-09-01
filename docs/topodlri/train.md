@@ -798,6 +798,16 @@ python test.py \
 
 1. **Small Dataset Problem**
    - **Challenge:** Only 15 images per domain
+
+---
+
+## 11. Phase 2: Supervised Aligned Training
+
+Since the initial experiments, the project has progressed significantly:
+1. **Aligned Dataset:** We now use an aligned dataset (`datasets/fundus_aligned`) with 213 paired training images, created using SIFT + RANSAC Affine warping.
+2. **Supervised Loss Gating:** `models/cycle_gan_model.py` was modified to accept supervised `--lambda_L1` and `--lambda_SSIM` parameters. When using the aligned dataset, these act as a direct pixel-wise and perceptual constraint against the ground truth, significantly improving generated details.
+3. **InstanceNorm Blur Fix:** We discovered that `--batch_size > 1` causes severe blurriness because `InstanceNorm` inherently struggles with diverse image statistics in a batch. `batch_size=1` is now permanently used.
+4. **Dynamic Full-Directory Metrics:** We completely rewrote `compute_metrics.py`. It now evaluates all images in a given `--dir` simultaneously and automatically handles 2-pixel upsampling/padding shape mismatches.
    - **Solution:** Extended training to 200 epochs + aggressive data augmentation
    - **Result:** Model successfully learned domain mappings
 

@@ -249,4 +249,21 @@ python compute_metrics.py
 
 ---
 
+## 15. Phase 2 Updates: Paired Aligned Dataset & Supervised Losses
+
+The project has since evolved to leverage **paired, aligned datasets** (`fundus_aligned/`). 
+
+### Key Advancements:
+1. **Dataset Expansion:** Moving from 15 unpaired images to **213 aligned image pairs**.
+2. **Supervised Losses:** `models/cycle_gan_model.py` was extended to optionally use paired supervision. When using an aligned dataset, you can now add:
+   - `--lambda_L1`: Pixel-wise L1 loss between generated and ground truth.
+   - `--lambda_SSIM`: Structural Similarity loss to directly optimize perceptual quality.
+3. **Batch Size Fix:** Found that CycleGAN's `InstanceNorm` layers degrade image quality and cause blurring when `batch_size > 1` (due to aggregating statistics across different spatial images). `batch_size=1` is now strictly enforced.
+4. **Dynamic Metrics Pipeline:** `compute_metrics.py` was completely rewritten. It now:
+   - Accepts a `--dir` argument to evaluate entire test sets at once.
+   - Automatically handles 2-pixel dimension mismatches (caused by generator padding) by cropping/resizing the generated output to exactly match the ground truth.
+   - Calculates PSNR, SSIM, and LPIPS directly between `fake` and `real` ground truth to measure true translation quality rather than just cycle reconstruction.
+
+---
+
 This report is intended as a complete, shareable summary of the current project state in this workspace.
