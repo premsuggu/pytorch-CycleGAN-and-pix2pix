@@ -1,0 +1,6 @@
+models/
+results/
+__pycache__/
+.ipynb_checkpoints/
+*.pth
+*.h5
