@@ -65,6 +65,10 @@ class CycleGANModel(BaseModel):
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         visual_names_A = ["real_A", "fake_B", "rec_A"]
         visual_names_B = ["real_B", "fake_A", "rec_B"]
+        self.is_dual_encoder = "dual_encoder" in getattr(opt, "netG", "")
+        if self.is_dual_encoder:
+            visual_names_A.append("vessel_A")
+            visual_names_B.append("vessel_B")
         if self.isTrain and self.opt.lambda_identity > 0.0:  # if identity loss is used, we also visualize idt_B=G_A(B) ad idt_A=G_B(A)
             visual_names_A.append("idt_B")
             visual_names_B.append("idt_A")
@@ -79,8 +83,9 @@ class CycleGANModel(BaseModel):
         # define networks (both Generators and discriminators)
         # The naming is different from those used in the paper.
         # Code (vs. paper): G_A (G), G_B (F), D_A (D_Y), D_B (D_X)
-        self.netG_A = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.norm, not opt.no_dropout, opt.init_type, opt.init_gain)
-        self.netG_B = networks.define_G(opt.output_nc, opt.input_nc, opt.ngf, opt.netG, opt.norm, not opt.no_dropout, opt.init_type, opt.init_gain)
+        vessel_nc = getattr(opt, "vessel_nc", 1)
+        self.netG_A = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.norm, not opt.no_dropout, opt.init_type, opt.init_gain, vessel_nc=vessel_nc)
+        self.netG_B = networks.define_G(opt.output_nc, opt.input_nc, opt.ngf, opt.netG, opt.norm, not opt.no_dropout, opt.init_type, opt.init_gain, vessel_nc=vessel_nc)
 
         if self.isTrain:  # define discriminators
             self.netD_A = networks.define_D(opt.output_nc, opt.ndf, opt.netD, opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain)
@@ -116,13 +121,25 @@ class CycleGANModel(BaseModel):
         self.real_A = input["A" if AtoB else "B"].to(self.device)
         self.real_B = input["B" if AtoB else "A"].to(self.device)
         self.image_paths = input["A_paths" if AtoB else "B_paths"]
+        if "A_vessel" in input and "B_vessel" in input:
+            self.vessel_A = input["A_vessel" if AtoB else "B_vessel"].to(self.device)
+            self.vessel_B = input["B_vessel" if AtoB else "A_vessel"].to(self.device)
+        else:
+            self.vessel_A = None
+            self.vessel_B = None
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
-        self.fake_B = self.netG_A(self.real_A)  # G_A(A)
-        self.rec_A = self.netG_B(self.fake_B)  # G_B(G_A(A))
-        self.fake_A = self.netG_B(self.real_B)  # G_B(B)
-        self.rec_B = self.netG_A(self.fake_A)  # G_A(G_B(B))
+        if self.is_dual_encoder and hasattr(self, "vessel_A") and self.vessel_A is not None:
+            self.fake_B = self.netG_A(self.real_A, self.vessel_A)  # G_A(A, vessel_A) -> fake_B
+            self.rec_A = self.netG_B(self.fake_B, self.vessel_A)   # G_B(fake_B, vessel_A) -> rec_A
+            self.fake_A = self.netG_B(self.real_B, self.vessel_B)  # G_B(B, vessel_B) -> fake_A
+            self.rec_B = self.netG_A(self.fake_A, self.vessel_B)   # G_A(fake_A, vessel_B) -> rec_B
+        else:
+            self.fake_B = self.netG_A(self.real_A)  # G_A(A)
+            self.rec_A = self.netG_B(self.fake_B)  # G_B(G_A(A))
+            self.fake_A = self.netG_B(self.real_B)  # G_B(B)
+            self.rec_B = self.netG_A(self.fake_A)  # G_A(G_B(B))
 
     def backward_D_basic(self, netD, real, fake):
         """Calculate GAN loss for the discriminator
@@ -164,10 +181,17 @@ class CycleGANModel(BaseModel):
         # Identity loss
         if lambda_idt > 0:
             # G_A should be identity if real_B is fed: ||G_A(B) - B||
-            self.idt_A = self.netG_A(self.real_B)
+            if self.is_dual_encoder and hasattr(self, "vessel_B") and self.vessel_B is not None:
+                self.idt_A = self.netG_A(self.real_B, self.vessel_B)
+            else:
+                self.idt_A = self.netG_A(self.real_B)
             self.loss_idt_A = self.criterionIdt(self.idt_A, self.real_B) * lambda_B * lambda_idt
+
             # G_B should be identity if real_A is fed: ||G_B(A) - A||
-            self.idt_B = self.netG_B(self.real_A)
+            if self.is_dual_encoder and hasattr(self, "vessel_A") and self.vessel_A is not None:
+                self.idt_B = self.netG_B(self.real_A, self.vessel_A)
+            else:
+                self.idt_B = self.netG_B(self.real_A)
             self.loss_idt_B = self.criterionIdt(self.idt_B, self.real_A) * lambda_A * lambda_idt
         else:
             self.loss_idt_A = 0

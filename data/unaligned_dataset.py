@@ -1,5 +1,5 @@
 import os
-from data.base_dataset import BaseDataset, get_transform
+from data.base_dataset import BaseDataset, get_transform, get_params
 from data.image_folder import make_dataset
 from PIL import Image
 import random
@@ -25,16 +25,17 @@ class UnalignedDataset(BaseDataset):
         BaseDataset.__init__(self, opt)
         self.dir_A = os.path.join(opt.dataroot, opt.phase + "A")  # create a path '/path/to/data/trainA'
         self.dir_B = os.path.join(opt.dataroot, opt.phase + "B")  # create a path '/path/to/data/trainB'
+        self.dir_A_vessel = os.path.join(opt.dataroot, opt.phase + "A_vessel")
+        self.dir_B_vessel = os.path.join(opt.dataroot, opt.phase + "B_vessel")
+        self.has_vessels = os.path.isdir(self.dir_A_vessel) and os.path.isdir(self.dir_B_vessel)
 
         self.A_paths = sorted(make_dataset(self.dir_A, opt.max_dataset_size))  # load images from '/path/to/data/trainA'
         self.B_paths = sorted(make_dataset(self.dir_B, opt.max_dataset_size))  # load images from '/path/to/data/trainB'
         self.A_size = len(self.A_paths)  # get the size of dataset A
         self.B_size = len(self.B_paths)  # get the size of dataset B
         btoA = self.opt.direction == "BtoA"
-        input_nc = self.opt.output_nc if btoA else self.opt.input_nc  # get the number of channels of input image
-        output_nc = self.opt.input_nc if btoA else self.opt.output_nc  # get the number of channels of output image
-        self.transform_A = get_transform(self.opt, grayscale=(input_nc == 1))
-        self.transform_B = get_transform(self.opt, grayscale=(output_nc == 1))
+        self.input_nc = self.opt.output_nc if btoA else self.opt.input_nc  # get the number of channels of input image
+        self.output_nc = self.opt.input_nc if btoA else self.opt.output_nc  # get the number of channels of output image
 
     def __getitem__(self, index):
         """Return a data point and its metadata information.
@@ -56,11 +57,35 @@ class UnalignedDataset(BaseDataset):
         B_path = self.B_paths[index_B]
         A_img = Image.open(A_path).convert("RGB")
         B_img = Image.open(B_path).convert("RGB")
-        # apply image transformation
-        A = self.transform_A(A_img)
-        B = self.transform_B(B_img)
+        # Synchronize random transform parameters between image and its vessel map
+        transform_params_A = get_params(self.opt, A_img.size)
+        transform_params_B = get_params(self.opt, B_img.size)
 
-        return {"A": A, "B": B, "A_paths": A_path, "B_paths": B_path}
+        transform_A = get_transform(self.opt, transform_params_A, grayscale=(self.input_nc == 1))
+        transform_B = get_transform(self.opt, transform_params_B, grayscale=(self.output_nc == 1))
+
+        # apply image transformation
+        A = transform_A(A_img)
+        B = transform_B(B_img)
+
+        data_dict = {"A": A, "B": B, "A_paths": A_path, "B_paths": B_path}
+
+        if self.has_vessels:
+            vessel_A_path = os.path.join(self.dir_A_vessel, os.path.basename(A_path))
+            vessel_B_path = os.path.join(self.dir_B_vessel, os.path.basename(B_path))
+            if os.path.isfile(vessel_A_path) and os.path.isfile(vessel_B_path):
+                vessel_A_img = Image.open(vessel_A_path).convert("L")
+                vessel_B_img = Image.open(vessel_B_path).convert("L")
+                if vessel_A_img.getextrema()[1] <= 1:
+                    vessel_A_img = Image.eval(vessel_A_img, lambda p: 255 if p > 0 else 0)
+                if vessel_B_img.getextrema()[1] <= 1:
+                    vessel_B_img = Image.eval(vessel_B_img, lambda p: 255 if p > 0 else 0)
+                transform_vessel_A = get_transform(self.opt, transform_params_A, grayscale=True)
+                transform_vessel_B = get_transform(self.opt, transform_params_B, grayscale=True)
+                data_dict["A_vessel"] = transform_vessel_A(vessel_A_img)
+                data_dict["B_vessel"] = transform_vessel_B(vessel_B_img)
+
+        return data_dict
 
     def __len__(self):
         """Return the total number of images in the dataset.

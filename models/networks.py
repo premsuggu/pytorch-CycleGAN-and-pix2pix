@@ -129,18 +129,19 @@ def init_net(net, init_type="normal", init_gain=0.02):
     return net
 
 
-def define_G(input_nc, output_nc, ngf, netG, norm="batch", use_dropout=False, init_type="normal", init_gain=0.02):
+def define_G(input_nc, output_nc, ngf, netG, norm="batch", use_dropout=False, init_type="normal", init_gain=0.02, vessel_nc=1):
     """Create a generator
 
     Parameters:
         input_nc (int) -- the number of channels in input images
         output_nc (int) -- the number of channels in output images
         ngf (int) -- the number of filters in the last conv layer
-        netG (str) -- the architecture's name: resnet_9blocks | resnet_6blocks | unet_128 | unet_256
+        netG (str) -- the architecture's name: resnet_9blocks | resnet_6blocks | unet_128 | unet_256 | dual_encoder_resnet_9blocks | dual_encoder_resnet_6blocks
         norm (str) -- the name of normalization layers used in the network: batch | instance | none
         use_dropout (bool) -- if use dropout layers.
         init_type (str)    -- the name of our initialization method.
         init_gain (float)  -- scaling factor for normal, xavier and orthogonal.
+        vessel_nc (int)    -- the number of channels in vessel segmentation map (default: 1)
 
     Returns a generator
     """
@@ -151,6 +152,10 @@ def define_G(input_nc, output_nc, ngf, netG, norm="batch", use_dropout=False, in
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9)
     elif netG == "resnet_6blocks":
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6)
+    elif netG == "dual_encoder_resnet_9blocks":
+        net = DualEncoderResnetGenerator(input_nc, vessel_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9)
+    elif netG == "dual_encoder_resnet_6blocks":
+        net = DualEncoderResnetGenerator(input_nc, vessel_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6)
     elif netG == "unet_128":
         net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == "unet_256":
@@ -418,6 +423,132 @@ class ResnetBlock(nn.Module):
     def forward(self, x):
         """Forward function (with skip connections)"""
         out = x + self.conv_block(x)  # add skip connections
+        return out
+
+
+class DualEncoderResnetGenerator(nn.Module):
+    """Dual-Encoder Resnet-based generator for structure-guided image translation.
+
+    Stream 1 (Image Encoder): Encodes input image (e.g. 3 RGB channels) into multi-scale feature maps.
+    Stream 2 (Vessel Encoder): Encodes vessel segmentation map (e.g. 1 channel) into structural feature maps.
+    Fusion: Fuses the image and vessel feature maps at the bottleneck resolution using 1x1 convolution.
+    Bottleneck & Decoder: ResNet transformation blocks and upsampling decoder to synthesize the translated image.
+    """
+
+    def __init__(self, input_nc, vessel_nc, output_nc, ngf=64, ngf_vessel=32, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=9, padding_type="reflect"):
+        """Construct a Dual-Encoder ResNet-based generator.
+
+        Parameters:
+            input_nc (int)      -- number of channels in input image (e.g., 3 for RGB)
+            vessel_nc (int)     -- number of channels in vessel map (e.g., 1 for binary/prob map)
+            output_nc (int)     -- number of channels in output image
+            ngf (int)           -- number of filters in the first conv layer of image encoder
+            ngf_vessel (int)    -- number of filters in the first conv layer of vessel encoder
+            norm_layer          -- normalization layer
+            use_dropout (bool)  -- whether to use dropout layers
+            n_blocks (int)      -- number of ResNet blocks in bottleneck
+            padding_type (str)  -- padding layer type in conv layers: reflect | replicate | zero
+        """
+        assert n_blocks >= 0
+        super(DualEncoderResnetGenerator, self).__init__()
+        self.input_nc = input_nc
+        self.vessel_nc = vessel_nc
+        self.output_nc = output_nc
+
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+
+        # ─── Stream 1: Image Encoder ──────────────────────────────────────────
+        img_encoder = [
+            nn.ReflectionPad2d(3),
+            nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias),
+            norm_layer(ngf),
+            nn.ReLU(True),
+        ]
+        n_downsampling = 2
+        for i in range(n_downsampling):
+            mult = 2**i
+            img_encoder += [
+                nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias),
+                norm_layer(ngf * mult * 2),
+                nn.ReLU(True),
+            ]
+        self.img_encoder = nn.Sequential(*img_encoder)
+
+        # ─── Stream 2: Vessel Map Encoder ──────────────────────────────────────
+        vessel_encoder = [
+            nn.ReflectionPad2d(3),
+            nn.Conv2d(vessel_nc, ngf_vessel, kernel_size=7, padding=0, bias=use_bias),
+            norm_layer(ngf_vessel),
+            nn.ReLU(True),
+        ]
+        for i in range(n_downsampling):
+            mult = 2**i
+            vessel_encoder += [
+                nn.Conv2d(ngf_vessel * mult, ngf_vessel * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias),
+                norm_layer(ngf_vessel * mult * 2),
+                nn.ReLU(True),
+            ]
+        self.vessel_encoder = nn.Sequential(*vessel_encoder)
+
+        # ─── Feature Fusion (Bottleneck Projection) ───────────────────────────
+        img_bottleneck_nc = ngf * (2**n_downsampling)           # e.g., 64 * 4 = 256
+        vessel_bottleneck_nc = ngf_vessel * (2**n_downsampling) # e.g., 32 * 4 = 128
+        fused_in_nc = img_bottleneck_nc + vessel_bottleneck_nc  # 384
+        self.fusion = nn.Sequential(
+            nn.Conv2d(fused_in_nc, img_bottleneck_nc, kernel_size=1, stride=1, padding=0, bias=use_bias),
+            norm_layer(img_bottleneck_nc),
+            nn.ReLU(True),
+        )
+
+        # ─── Bottleneck ResNet Blocks ──────────────────────────────────────────
+        bottleneck = []
+        for i in range(n_blocks):
+            bottleneck += [ResnetBlock(img_bottleneck_nc, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        self.bottleneck = nn.Sequential(*bottleneck)
+
+        # ─── Decoder / Upsampling Stream ──────────────────────────────────────
+        decoder = []
+        for i in range(n_downsampling):
+            mult = 2 ** (n_downsampling - i)
+            decoder += [
+                nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1, bias=use_bias),
+                norm_layer(int(ngf * mult / 2)),
+                nn.ReLU(True),
+            ]
+        decoder += [
+            nn.ReflectionPad2d(3),
+            nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0),
+            nn.Tanh(),
+        ]
+        self.decoder = nn.Sequential(*decoder)
+
+    def forward(self, input, vessel=None):
+        """Forward pass with dual inputs: image and vessel map.
+
+        Supports:
+            1. forward(img, vessel)
+            2. forward((img, vessel))
+            3. forward(concatenated_tensor)
+            4. forward(img) with zero vessel fallback
+        """
+        if vessel is None:
+            if isinstance(input, (tuple, list)):
+                input, vessel = input[0], input[1]
+            elif input.size(1) == self.input_nc + self.vessel_nc:
+                vessel = input[:, self.input_nc :, :, :]
+                input = input[:, : self.input_nc, :, :]
+            else:
+                b, _, h, w = input.shape
+                vessel = torch.zeros(b, self.vessel_nc, h, w, dtype=input.dtype, device=input.device)
+
+        feat_img = self.img_encoder(input)
+        feat_vessel = self.vessel_encoder(vessel)
+        feat_fused = self.fusion(torch.cat([feat_img, feat_vessel], dim=1))
+        feat_bottleneck = self.bottleneck(feat_fused)
+        out = self.decoder(feat_bottleneck)
         return out
 
 

@@ -24,6 +24,9 @@ class PairedCycleganDataset(BaseDataset):
         BaseDataset.__init__(self, opt)
         self.dir_A = os.path.join(opt.dataroot, opt.phase + "A")  # create a path '/path/to/data/trainA'
         self.dir_B = os.path.join(opt.dataroot, opt.phase + "B")  # create a path '/path/to/data/trainB'
+        self.dir_A_vessel = os.path.join(opt.dataroot, opt.phase + "A_vessel")
+        self.dir_B_vessel = os.path.join(opt.dataroot, opt.phase + "B_vessel")
+        self.has_vessels = os.path.isdir(self.dir_A_vessel) and os.path.isdir(self.dir_B_vessel)
 
         self.A_paths = sorted(make_dataset(self.dir_A, opt.max_dataset_size))  # load images from '/path/to/data/trainA'
         self.B_paths = sorted(make_dataset(self.dir_B, opt.max_dataset_size))  # load images from '/path/to/data/trainB'
@@ -39,7 +42,7 @@ class PairedCycleganDataset(BaseDataset):
         Parameters:
             index (int)      -- a random integer for data indexing
 
-        Returns a dictionary that contains A, B, A_paths and B_paths
+        Returns a dictionary that contains A, B, A_paths and B_paths (and optionally A_vessel, B_vessel)
         """
         A_path = self.A_paths[index % self.A_size]
         B_path = self.B_paths[index % self.B_size] # perfectly aligned pair
@@ -57,7 +60,22 @@ class PairedCycleganDataset(BaseDataset):
         A = transform_A(A_img)
         B = transform_B(B_img)
 
-        return {"A": A, "B": B, "A_paths": A_path, "B_paths": B_path}
+        data_dict = {"A": A, "B": B, "A_paths": A_path, "B_paths": B_path}
+
+        if self.has_vessels:
+            vessel_A_path = os.path.join(self.dir_A_vessel, os.path.basename(A_path))
+            vessel_B_path = os.path.join(self.dir_B_vessel, os.path.basename(B_path))
+                vessel_A_img = Image.open(vessel_A_path).convert("L")
+                vessel_B_img = Image.open(vessel_B_path).convert("L")
+                if vessel_A_img.getextrema()[1] <= 1:
+                    vessel_A_img = Image.eval(vessel_A_img, lambda p: 255 if p > 0 else 0)
+                if vessel_B_img.getextrema()[1] <= 1:
+                    vessel_B_img = Image.eval(vessel_B_img, lambda p: 255 if p > 0 else 0)
+                transform_vessel = get_transform(self.opt, transform_params, grayscale=True)
+                data_dict["A_vessel"] = transform_vessel(vessel_A_img)
+                data_dict["B_vessel"] = transform_vessel(vessel_B_img)
+
+        return data_dict
 
     def __len__(self):
         """Return the total number of images in the dataset."""
