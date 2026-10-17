@@ -28,10 +28,19 @@ class PairedCycleganDataset(BaseDataset):
         self.dir_B_vessel = os.path.join(opt.dataroot, opt.phase + "B_vessel")
         self.has_vessels = os.path.isdir(self.dir_A_vessel) and os.path.isdir(self.dir_B_vessel)
 
-        self.A_paths = sorted(make_dataset(self.dir_A, opt.max_dataset_size))  # load images from '/path/to/data/trainA'
-        self.B_paths = sorted(make_dataset(self.dir_B, opt.max_dataset_size))  # load images from '/path/to/data/trainB'
-        self.A_size = len(self.A_paths)  # get the size of dataset A
-        self.B_size = len(self.B_paths)  # get the size of dataset B
+        A_paths_raw = make_dataset(self.dir_A, opt.max_dataset_size)
+        B_paths_raw = make_dataset(self.dir_B, opt.max_dataset_size)
+        A_map = {os.path.basename(p): p for p in A_paths_raw}
+        B_map = {os.path.basename(p): p for p in B_paths_raw}
+        common_names = sorted(list(set(A_map.keys()) & set(B_map.keys())))
+        if common_names:
+            self.A_paths = [A_map[k] for k in common_names]
+            self.B_paths = [B_map[k] for k in common_names]
+        else:
+            self.A_paths = sorted(A_paths_raw)
+            self.B_paths = sorted(B_paths_raw)
+        self.A_size = len(self.A_paths)
+        self.B_size = len(self.B_paths)
         btoA = self.opt.direction == "BtoA"
         self.input_nc = self.opt.output_nc if btoA else self.opt.input_nc
         self.output_nc = self.opt.input_nc if btoA else self.opt.output_nc
@@ -65,12 +74,17 @@ class PairedCycleganDataset(BaseDataset):
         if self.has_vessels:
             vessel_A_path = os.path.join(self.dir_A_vessel, os.path.basename(A_path))
             vessel_B_path = os.path.join(self.dir_B_vessel, os.path.basename(B_path))
+            if os.path.isfile(vessel_A_path) and os.path.isfile(vessel_B_path):
                 vessel_A_img = Image.open(vessel_A_path).convert("L")
                 vessel_B_img = Image.open(vessel_B_path).convert("L")
                 if vessel_A_img.getextrema()[1] <= 1:
                     vessel_A_img = Image.eval(vessel_A_img, lambda p: 255 if p > 0 else 0)
                 if vessel_B_img.getextrema()[1] <= 1:
                     vessel_B_img = Image.eval(vessel_B_img, lambda p: 255 if p > 0 else 0)
+                if vessel_A_img.size != A_img.size:
+                    vessel_A_img = vessel_A_img.resize(A_img.size, Image.NEAREST)
+                if vessel_B_img.size != B_img.size:
+                    vessel_B_img = vessel_B_img.resize(B_img.size, Image.NEAREST)
                 transform_vessel = get_transform(self.opt, transform_params, grayscale=True)
                 data_dict["A_vessel"] = transform_vessel(vessel_A_img)
                 data_dict["B_vessel"] = transform_vessel(vessel_B_img)

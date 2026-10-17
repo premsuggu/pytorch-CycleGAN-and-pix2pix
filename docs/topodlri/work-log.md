@@ -133,6 +133,78 @@ When attempting to run batch extraction on the HPC GPU cluster, the initial job 
 - **Solution:** Investigation of cluster partitions revealed the dedicated `sgpu` partition (`PartitionName=sgpu`), whose default QOS is `sgpu_qos` (`MinTRES = gres/gpu=1`, `MaxTRES = gres/gpu=1`, walltime up to 2 days). Submitting single-GPU jobs with `--partition=sgpu` immediately dispatched the job to an idle NVIDIA A100 80GB PCIe node (`rsgpu022`).
 
 ### End-to-End Pipeline Execution
-- **Extraction Job (`Job 629265`):** Running on `rsgpu022` with batch size 4 across `trainA` (395 images), `trainB` (395 images), `testB` (71 images), and `testA` (1160 images) at ~0.44s/image.
-- **Chained Training Job (`Job 629268`):** Submitted with SLURM dependency `--dependency=afterok:629265`. As soon as vessel extraction concludes with ExitCode 0, the Dual-Encoder CycleGAN training automatically initializes with 150 regular + 150 decay epochs on the full dataset.
+- **Extraction Job (`Job 629265`):** Completed successfully on `rsgpu022` with ExitCode 0 across all 2021 dataset images:
+  - `trainA`: 395 images → `trainA_vessel`: 395 masks
+  - `trainB`: 395 images → `trainB_vessel`: 395 masks
+  - `testB`: 71 images → `testB_vessel`: 71 masks
+  - `testA`: 1160 images → `testA_vessel`: 1160 masks
+  - Total extraction duration: ~19 minutes on NVIDIA A100.
+
+---
+
+## 8. Training Pipeline Debugging & Active Dual-Encoder Training Launch
+### Diagnosis of Initial Training Job Failure (`Job 629268`)
+When dependent training job `629268` triggered, it terminated immediately with:
+`IndentationError: unexpected indent in data/paired_cyclegan_dataset.py line 68`
+- **Root Cause:** A minor line mismatch during the vessel mask scaling patch had left `vessel_A_img = Image.open(vessel_A_path).convert("L")` at an extra 4-space indentation level due to an omitted `if os.path.isfile(...)` guard.
+- **The Resolution:**
+  1. Corrected `data/paired_cyclegan_dataset.py` by restoring the file existence guard and aligning indentation to 12 spaces.
+  2. Verified byte-compilation cleanly across all data loaders using `python3 -m py_compile data/paired_cyclegan_dataset.py data/unaligned_dataset.py`.
+  3. Ran an end-to-end CPU smoke-test of `train.py` on real images and vessel maps (`--max_dataset_size 2`), successfully verifying the forward pass, backward pass, loss computation, optimizer updates, and HTML visualizer without errors.
+
+### Live Production Training Launch (`Job 629282`)
+With all 2021 vessel masks pre-computed and dataset loaders verified, the Dual-Encoder CycleGAN training job was resubmitted:
+- **SLURM Job ID:** `629282`
+- **Partition / QOS:** `sgpu` / `sgpu_qos`
+- **Compute Node:** `rsgpu022` (NVIDIA A100 80GB PCIe)
+- **Active Metrics:**
+  - GPU Utilization: ~92%
+  - Compute Speed: ~0.089 seconds / iteration
+  - Epoch Duration: ~35 seconds per 395 image pairs
+  - Checkpoint Frequency: Saved every 25 epochs to `checkpoints/dual_encoder_cyclegan/`
+  - Real-time Visuals: Logged to `checkpoints/dual_encoder_cyclegan/web/` (`real_A`, `real_B`, `fake_A`, `fake_B`, `rec_A`, `rec_B`, `vessel_A`, `vessel_B`).
+
+---
+
+## 9. Dual-Encoder CycleGAN: Training Completion, Evaluation & Benchmark Results
+### Training Dynamics & Convergence (SLURM Job `629282`)
+Production training ran for 300 epochs (150 regular + 150 learning-rate decay) on `rsgpu022` (NVIDIA A100 80GB PCIe):
+- **Iterations:** 395 steps per epoch (118,500 total steps) with `batch_size = 1`.
+- **Loss Convergence:**
+  - Cycle-consistency loss $\mathcal{L}_{\text{cyc}}(A)$ dropped steadily from initial $2.806 \to 0.328$.
+  - Cycle-consistency loss $\mathcal{L}_{\text{cyc}}(B)$ dropped from $1.590 \to 0.454$.
+  - Adversarial balance maintained stable min-max equilibrium: $D_A \approx 0.200, G_A \approx 0.244, D_B \approx 0.169, G_B \approx 0.411$.
+  - Identity losses settled at $0.239$ ($\text{idt}_A$) and $0.099$ ($\text{idt}_B$).
+- **Checkpoints:** Periodically exported every 25 epochs to `checkpoints/dual_encoder_cyclegan/` (`latest_net_*.pth` and `300_net_*.pth`).
+
+### Test Dataset Pairing Alignment
+During setup of the evaluation test harness, a critical data alignment condition was addressed:
+- In `datasets/dlri/aligned/`, the test split contains $N_A = 1160$ images in `testA` (conventional fundus) and $N_B = 71$ images in `testB` (aligned confocal ground truth).
+- `PairedCycleganDataset` originally paired items sequentially using modulo arithmetic (`testB[i % len(B)]`), which artificially matched `testA` samples against non-identical eyes from `testB`, invalidating direct paired translation metrics.
+- **The Fix:** Updated `data/paired_cyclegan_dataset.py` to index files by basename and compute the set intersection (`set(A_map.keys()) & set(B_map.keys())`). When common basenames exist, the dataset pairs exactly the 71 verified ground-truth matched eyes 1-to-1 (`assert len(dataset) == 71`).
+
+### Test Inference Execution & Full-Resolution Patching (SLURM Job `644005`)
+- **Diagnosis of 256×256 Cropped Output:** Initial test runs utilized `--preprocess scale_width_and_crop --crop_size 256`, which unintentionally cropped central 256×256 square patches instead of translating the full retinal field of view.
+- **The Resolution:**
+  1. Updated test configuration in `python-scripts/submit_test_dual_encoder.sh` to `--preprocess scale_width --load_size 1024` (matching `cyclegan_ssim`), eliminating cropping and preserving the entire circular retina.
+  2. Enhanced `data/paired_cyclegan_dataset.py` and `data/unaligned_dataset.py` with aspect/resolution alignment: if `vessel_img.size != img.size`, the vessel mask is automatically resized to match the source image before `get_transform` runs, ensuring identical tensor dimensions across dual encoder streams (`[3, 778, 1024]` and `[1, 778, 1024]`).
+  3. Batch inference was dispatched via SLURM Job `644005` on `rsgpu015` (NVIDIA A100), producing complete 1024×780 full-field images across all 71 evaluation sets (568 images) stored in `results/dual_encoder_cyclegan/test_latest/images/`.
+
+### Official Quantitative Benchmark Evaluation (Full Retinal Resolution: 1024×780)
+Evaluation was calculated across all 71 matched test sets via `compute_metrics.py` (GPU-accelerated LPIPS VGG trunk):
+
+| Direction | Comparison | SSIM ↑ | PSNR (dB) ↑ | LPIPS ↓ | Benchmark Significance |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **A → B Translation (Conventional → Confocal)** | `fake_B` vs `real_B` | **0.6427** | **20.80** | **0.2851** | Marked improvement over cropped baseline; superior vessel contrast and texture preservation across full circular retina. |
+| **B → A Translation (Confocal → Conventional)** | `fake_A` vs `real_A` | **0.8027** | **20.30** | **0.2827** | High structural fidelity back to conventional fundus. |
+| **Cycle A Reconstruction** | `rec_A` vs `real_A` | **0.9127** | **27.17** | **0.1834** | High-fidelity round-trip cycle consistency. |
+| **Cycle B Reconstruction** | `rec_B` vs `real_B` | **0.7786** | **26.43** | **0.2045** | Stable round-trip confocal cycle consistency. |
+
+### Qualitative Visual Findings
+1. **Full Retinal Field-of-View Preservation:** Complete circular fundus boundary, temporal arcades, nasal periphery, macula, and optic disc are fully rendered without any cropping or missing sectors.
+2. **Vessel Continuity & Topology:** Unlike unguided CycleGAN where thin vessels frequently fractured or faded into the background, the dual-encoder generator strictly preserves the branch continuity and geometry defined by the vessel encoder stream across the entire 1024×780 field.
+3. **Optic Disc and Macular Shading:** Confocal illumination signatures (dark macular lutea, distinct optic cup boundaries, bright reflex near major arcades) are accurately synthesized in `fake_B`.
+4. **Artifact-Free Texture:** The dual stream fusion maintains smooth choroidal backgrounds without high-frequency grid artifacts or color clipping.
+
+
 

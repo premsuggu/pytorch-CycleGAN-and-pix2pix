@@ -80,6 +80,10 @@ class UnalignedDataset(BaseDataset):
                     vessel_A_img = Image.eval(vessel_A_img, lambda p: 255 if p > 0 else 0)
                 if vessel_B_img.getextrema()[1] <= 1:
                     vessel_B_img = Image.eval(vessel_B_img, lambda p: 255 if p > 0 else 0)
+                if vessel_A_img.size != A_img.size:
+                    vessel_A_img = vessel_A_img.resize(A_img.size, Image.NEAREST)
+                if vessel_B_img.size != B_img.size:
+                    vessel_B_img = vessel_B_img.resize(B_img.size, Image.NEAREST)
                 transform_vessel_A = get_transform(self.opt, transform_params_A, grayscale=True)
                 transform_vessel_B = get_transform(self.opt, transform_params_B, grayscale=True)
                 data_dict["A_vessel"] = transform_vessel_A(vessel_A_img)
