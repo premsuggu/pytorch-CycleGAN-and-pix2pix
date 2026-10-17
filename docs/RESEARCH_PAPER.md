@@ -216,7 +216,7 @@ To supply an automated, explicit geometric prior, we benchmarked three candidate
 
 *(VascX serves as the reference ground-truth extractor utilized to generate the paired vascular masks across the DLRI corpus).*
 
-![Vessel Comparison Plot](/home/rameshk/.gemini/antigravity-cli/brain/b957d19e-7133-44d1-98ac-8e0ef60107d1/vessel_comparison_plot.png)
+![Vessel Comparison Plot](figures/vessel_comparison_plot.png)
 
 ### 6.2 Symmetric Dual-Encoder CycleGAN Architecture
 We re-engineered the standard CycleGAN generator into a two-stream deep neural network that processes photometric appearance and geometric vascular structure in parallel branches before bottleneck fusion:
