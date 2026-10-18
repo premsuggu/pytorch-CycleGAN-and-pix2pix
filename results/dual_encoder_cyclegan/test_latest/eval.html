@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Clinical Retinal Evaluation — Real vs. Fake (Dual-Encoder CycleGAN (Latest))</title>
+<title>Clinical Retinal Evaluation — Dual-Encoder CycleGAN (Latest — 71 Pairs)</title>
 <style>
 :root {
     --bg-primary: #0b1120;
@@ -16,7 +16,7 @@
     --accent-fake: #a855f7;
     --accent-gt: #0ea5e9;
     --accent-rev: #f59e0b;
-    --img-size: 520px;
+    --img-size: 540px;
 }
 
 body.light-mode {
@@ -64,7 +64,7 @@ header.top-nav {
 .nav-left {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 12px;
 }
 
 .nav-left h1 {
@@ -74,6 +74,7 @@ header.top-nav {
     display: flex;
     align-items: center;
     gap: 8px;
+    white-space: nowrap;
 }
 
 select.select-model {
@@ -119,6 +120,7 @@ select.select-model {
     font-size: 13px;
     color: var(--text-secondary);
     font-weight: 500;
+    white-space: nowrap;
 }
 
 .counter-badge b {
@@ -184,6 +186,109 @@ main.container {
     max-width: 1480px;
     margin: 0 auto;
     padding: 16px 20px;
+}
+
+/* Model Overview Hub Grid */
+.models-hub-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 24px;
+}
+
+.models-hub-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+}
+
+.models-hub-header h2 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.models-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+}
+
+.model-entry {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 10px;
+    transition: border-color 0.15s;
+}
+
+.model-entry:hover {
+    border-color: #3b82f6;
+}
+
+.model-entry.current {
+    border-color: #a855f7;
+    background: rgba(168, 85, 247, 0.08);
+}
+
+.model-entry-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.model-entry-meta {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.model-entry-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-model-link {
+    flex: 1;
+    text-align: center;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.15s;
+}
+
+.btn-primary-eval {
+    background: #3b82f6;
+    color: #fff;
+    border: 1px solid #3b82f6;
+}
+
+.btn-primary-eval:hover {
+    background: #2563eb;
+}
+
+.btn-secondary-grid {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}
+
+.btn-secondary-grid:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
 }
 
 /* Evaluation Guide Banner */
@@ -482,8 +587,24 @@ body.light-mode .cell-header {
 <!-- Sticky Header -->
 <header class="top-nav">
     <div class="nav-left">
-        <h1>🔍 Clinical Evaluation</h1>
-        <span style="font-size:12px;font-weight:700;color:#a855f7;background:rgba(168,85,247,0.15);padding:3px 10px;border-radius:9999px;border:1px solid rgba(168,85,247,0.3)">Dual-Encoder CycleGAN (Latest)</span>
+        <h1><a href="../../index.html" style="text-decoration:none;color:inherit;display:flex;align-items:center;gap:6px;">🔬 Retinal Eval</a></h1>
+        <select class="select-model" id="model-select" onchange="onModelSelectChange(this.value)">
+            <option value="__master__">🏠 Master Evaluation Hub</option>
+            <optgroup label="── Aligned Test Set (71 Pairs) ──">
+                <option value="cyclegan_paired_l1_10/test_200">Paired L1 λ=10.0 (Epoch 200 — 71 Pairs)</option>
+                <option value="cyclegan_paired_l1_p5/test_200">Paired L1 λ=0.5 (Epoch 200 — 71 Pairs)</option>
+                <option value="cyclegan_ssim/test_latest">Paired SSIM λ=5.0 (Latest — 71 Pairs)</option>
+                <option value="cyclegan_unaligned/test_latest">Unpaired CycleGAN (Latest — 71 Pairs)</option>
+                <option value="dual_encoder_cyclegan/test_latest" selected>Dual-Encoder CycleGAN (Latest — 71 Pairs)</option>
+            </optgroup>
+            <optgroup label="── Original Test Set (50 Pairs) ──">
+                <option value="cyclegan_paired_ssim/test_200">Paired SSIM (Epoch 200 — 50 Samples)</option>
+                <option value="cyclegan_unaligned/test_200">Unpaired CycleGAN (Epoch 200 — 50 Samples)</option>
+                <option value="cyclegan_unaligned/test_300">Unpaired CycleGAN (Epoch 300 — 50 Samples)</option>
+                <option value="fundus_cyclegan_topodlri/test_100">Fundus Topo DLRI (Epoch 100 — 50 Samples)</option>
+                <option value="fundus_cyclegan_topodlri/test_200">Fundus Topo DLRI (Epoch 200 — 50 Samples)</option>
+            </optgroup>
+        </select>
     </div>
 
     <div class="nav-center">
@@ -569,7 +690,7 @@ body.light-mode .cell-header {
     <div class="nav-right">
         <div class="size-controls">
             <button class="size-btn" onclick="setImageSize('420px', this)">Compact</button>
-            <button class="size-btn active" onclick="setImageSize('560px', this)">Large</button>
+            <button class="size-btn active" onclick="setImageSize('540px', this)">Large</button>
             <button class="size-btn" onclick="setImageSize('750px', this)">X-Large</button>
             <button class="size-btn" onclick="setImageSize('100%', this)">Full</button>
         </div>
@@ -5018,23 +5139,24 @@ body.light-mode .cell-header {
 </div>
 
 <script>
+const isMasterDashboard = false;
+const currentModelRel = "dual_encoder_cyclegan/test_latest";
 let currentModelPrefix = "";
 let currentSampleId = "";
 let currentModalKey = "fake_B";
 const sampleKeys = ["1003_Complete_R_0", "1008_Complete_L_0", "1008_Complete_R_0", "1009_Complete_R_0", "1010_Complete_L_0", "1013_Complete_L_0", "1022_Complete_R_0", "1024_Complete_R_0", "1026_Complete_L_0", "1027_Complete_L_0", "1028_Complete_R_0", "1031_Complete_L_0", "1035_Complete_L_0", "1036_Complete_L_0", "1039_Complete_L_0", "1043_Anomalous_L_0", "1044_Complete_L_0", "1054_Anomalous_R_0", "1060_Anomalous_R_0", "1061_Complete_L_0", "1061_Complete_R_0", "1062_Complete_R_0", "1065_Anomalous_L_0", "1069_Anomalous_R_0", "1074_Complete_R_0", "1077_Anomalous_L_0", "1078_Complete_L_0", "1082_Complete_L_0", "1094_Complete_R_0", "1096_Complete_R_0", "1097_Complete_R_0", "1101_Complete_L_0", "1102_Anomalous_L_0", "1106_Complete_L_0", "1106_Complete_R_0", "1116_Anomalous_R_0", "1117_Complete_R_0", "1125_Anomalous_R_0", "1128_Complete_R_0", "1141_Complete_L_0", "1150_Complete_L_0", "1358_Complete_L_0", "1370_Complete_L_0", "4005_Complete_R_0", "4028_Complete_R_0", "4030_Complete_L_0", "4038_Complete_L_0", "4038_Complete_R_0", "4045_Complete_R_0", "4051_Complete_R_0", "4061_Complete_L_0", "4291_Complete_R_0", "7233_Anomalous_L_0", "7286_Anomalous_L_0", "7303_Complete_R_0", "7312_Anomalous_R_0", "7317_Complete_R_0", "7320_Complete_L_0", "7321_Complete_L_0", "7327_Complete_L_0", "7328_Complete_L_0", "7341_Complete_R_0", "7342_Complete_L_0", "7342_Complete_R_0", "7347_Complete_R_0", "7352_Complete_L_0", "7357_Complete_L_0", "7359_Complete_L_0", "7363_Complete_R_0", "7365_Complete_L_0", "7407_Anomalous_R_0"];
 let currentIdx = 0;
 
-function switchModel(modelPath) {
-    currentModelPrefix = modelPath + "/";
-    sampleKeys.forEach(sid => {
-        ['real_A', 'fake_B', 'real_B', 'fake_A'].forEach(k => {
-            const el = document.getElementById(`img-${sid}-${k}`);
-            if (el) {
-                el.src = `${currentModelPrefix}images/${sid}_${k}.png`;
-            }
-        });
-    });
-    if (currentSampleId) updateModal();
+function onModelSelectChange(newModelRel) {
+    if (newModelRel === "__master__") {
+        window.location.href = isMasterDashboard ? "index.html" : "../../index.html";
+        return;
+    }
+    if (isMasterDashboard) {
+        window.location.href = newModelRel + "/eval.html";
+    } else {
+        window.location.href = `../../${newModelRel}/eval.html`;
+    }
 }
 
 function setImageSize(size, btn) {

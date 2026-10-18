@@ -19,14 +19,34 @@ def get_samples_for_model(model_dir):
             samples.append(sid)
     return samples
 
-def build_html_page(samples, model_title, models_dict=None, is_master=False):
-    # CSS & Page setup
+def format_model_title(rel_path):
+    titles = {
+        "dual_encoder_cyclegan/test_latest": "Dual-Encoder CycleGAN (Latest — 71 Pairs)",
+        "cyclegan_ssim/test_latest": "Paired SSIM λ=5.0 (Latest — 71 Pairs)",
+        "cyclegan_paired_l1_10/test_200": "Paired L1 λ=10.0 (Epoch 200 — 71 Pairs)",
+        "cyclegan_paired_l1_p5/test_200": "Paired L1 λ=0.5 (Epoch 200 — 71 Pairs)",
+        "cyclegan_unaligned/test_latest": "Unpaired CycleGAN (Latest — 71 Pairs)",
+        "cyclegan_paired_ssim/test_200": "Paired SSIM (Epoch 200 — 50 Samples)",
+        "cyclegan_unaligned/test_200": "Unpaired CycleGAN (Epoch 200 — 50 Samples)",
+        "cyclegan_unaligned/test_300": "Unpaired CycleGAN (Epoch 300 — 50 Samples)",
+        "fundus_cyclegan_topodlri/test_100": "Fundus Topo DLRI (Epoch 100 — 50 Samples)",
+        "fundus_cyclegan_topodlri/test_200": "Fundus Topo DLRI (Epoch 200 — 50 Samples)"
+    }
+    if rel_path in titles:
+        return titles[rel_path]
+    parts = rel_path.split('/')
+    m_name = parts[0].replace('_', ' ').title()
+    epoch = parts[1] if len(parts) > 1 else ''
+    return f"{m_name} ({epoch})"
+
+def build_html_page(samples, current_rel_path, model_title, all_models_dict, is_master=False):
+    prefix_to_root = "" if is_master else "../../"
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Clinical Retinal Evaluation — Real vs. Fake ({model_title})</title>
+<title>Clinical Retinal Evaluation — {model_title}</title>
 <style>
 :root {{
     --bg-primary: #0b1120;
@@ -39,7 +59,7 @@ def build_html_page(samples, model_title, models_dict=None, is_master=False):
     --accent-fake: #a855f7;
     --accent-gt: #0ea5e9;
     --accent-rev: #f59e0b;
-    --img-size: 520px;
+    --img-size: 540px;
 }}
 
 body.light-mode {{
@@ -87,7 +107,7 @@ header.top-nav {{
 .nav-left {{
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 12px;
 }}
 
 .nav-left h1 {{
@@ -97,6 +117,7 @@ header.top-nav {{
     display: flex;
     align-items: center;
     gap: 8px;
+    white-space: nowrap;
 }}
 
 select.select-model {{
@@ -142,6 +163,7 @@ select.select-model {{
     font-size: 13px;
     color: var(--text-secondary);
     font-weight: 500;
+    white-space: nowrap;
 }}
 
 .counter-badge b {{
@@ -207,6 +229,109 @@ main.container {{
     max-width: 1480px;
     margin: 0 auto;
     padding: 16px 20px;
+}}
+
+/* Model Overview Hub Grid */
+.models-hub-card {{
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 24px;
+}}
+
+.models-hub-header {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+}}
+
+.models-hub-header h2 {{
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}}
+
+.models-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+}}
+
+.model-entry {{
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 10px;
+    transition: border-color 0.15s;
+}}
+
+.model-entry:hover {{
+    border-color: #3b82f6;
+}}
+
+.model-entry.current {{
+    border-color: #a855f7;
+    background: rgba(168, 85, 247, 0.08);
+}}
+
+.model-entry-title {{
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+}}
+
+.model-entry-meta {{
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}}
+
+.model-entry-actions {{
+    display: flex;
+    gap: 8px;
+}}
+
+.btn-model-link {{
+    flex: 1;
+    text-align: center;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.15s;
+}}
+
+.btn-primary-eval {{
+    background: #3b82f6;
+    color: #fff;
+    border: 1px solid #3b82f6;
+}}
+
+.btn-primary-eval:hover {{
+    background: #2563eb;
+}}
+
+.btn-secondary-grid {{
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}}
+
+.btn-secondary-grid:hover {{
+    background: var(--bg-secondary);
+    color: var(--text-primary);
 }}
 
 /* Evaluation Guide Banner */
@@ -505,18 +630,35 @@ body.light-mode .cell-header {{
 <!-- Sticky Header -->
 <header class="top-nav">
     <div class="nav-left">
-        <h1>🔍 Clinical Evaluation</h1>
+        <h1><a href="{prefix_to_root}index.html" style="text-decoration:none;color:inherit;display:flex;align-items:center;gap:6px;">🔬 Retinal Eval</a></h1>
+        <select class="select-model" id="model-select" onchange="onModelSelectChange(this.value)">
+            <option value="__master__">🏠 Master Evaluation Hub</option>
+            <optgroup label="── Aligned Test Set (71 Pairs) ──">
 """
-    if is_master and models_dict:
-        html += '        <select class="select-model" id="model-select" onchange="switchModel(this.value)">\n'
-        for k, v in models_dict.items():
-            selected = ' selected' if k == "dual_encoder_cyclegan/test_latest" else ''
-            html += f'            <option value="{k}"{selected}>{v}</option>\n'
-        html += '        </select>\n'
-    else:
-        html += f'        <span style="font-size:12px;font-weight:700;color:#a855f7;background:rgba(168,85,247,0.15);padding:3px 10px;border-radius:9999px;border:1px solid rgba(168,85,247,0.3)">{model_title}</span>\n'
 
-    html += f"""    </div>
+    aligned_keys = [k for k in all_models_dict.keys() if "71" in all_models_dict[k] or k in [
+        "dual_encoder_cyclegan/test_latest",
+        "cyclegan_ssim/test_latest",
+        "cyclegan_paired_l1_10/test_200",
+        "cyclegan_paired_l1_p5/test_200",
+        "cyclegan_unaligned/test_latest"
+    ]]
+    other_keys = [k for k in all_models_dict.keys() if k not in aligned_keys]
+
+    for k in aligned_keys:
+        selected = ' selected' if k == current_rel_path else ''
+        html += f'                <option value="{k}"{selected}>{all_models_dict[k]}</option>\n'
+
+    html += """            </optgroup>
+            <optgroup label="── Original Test Set (50 Pairs) ──">
+"""
+    for k in other_keys:
+        selected = ' selected' if k == current_rel_path else ''
+        html += f'                <option value="{k}"{selected}>{all_models_dict[k]}</option>\n'
+
+    html += f"""            </optgroup>
+        </select>
+    </div>
 
     <div class="nav-center">
         <button class="nav-btn" onclick="prevSample()">◀ Prev</button>
@@ -534,7 +676,7 @@ body.light-mode .cell-header {{
     <div class="nav-right">
         <div class="size-controls">
             <button class="size-btn" onclick="setImageSize('420px', this)">Compact</button>
-            <button class="size-btn active" onclick="setImageSize('560px', this)">Large</button>
+            <button class="size-btn active" onclick="setImageSize('540px', this)">Large</button>
             <button class="size-btn" onclick="setImageSize('750px', this)">X-Large</button>
             <button class="size-btn" onclick="setImageSize('100%', this)">Full</button>
         </div>
@@ -560,8 +702,33 @@ body.light-mode .cell-header {{
     <!-- Samples List -->
 """
 
-    # Image prefix logic
-    img_prefix = "" if not is_master else "dual_encoder_cyclegan/test_latest/"
+    if is_master:
+        html += """    <section class="models-hub-card">
+        <div class="models-hub-header">
+            <h2>📊 Model Evaluation Hub (10 Checkpoints Evaluated)</h2>
+            <span style="font-size:12px;color:var(--text-secondary);">Click any model below or use the header dropdown to inspect.</span>
+        </div>
+        <div class="models-grid">
+"""
+        for m_rel, m_title in all_models_dict.items():
+            is_curr = ' current' if m_rel == current_rel_path else ''
+            sample_count = "71 Aligned Pairs" if "71" in m_title else "50 Pairs (Legacy)"
+            html += f"""            <div class="model-entry{is_curr}">
+                <div>
+                    <div class="model-entry-title">{m_title}</div>
+                    <div class="model-entry-meta"><span>📁 {m_rel}</span> • <span>{sample_count}</span></div>
+                </div>
+                <div class="model-entry-actions">
+                    <a class="btn-model-link btn-primary-eval" href="{m_rel}/eval.html">🔍 4-Quadrant Eval</a>
+                    <a class="btn-model-link btn-secondary-grid" href="{m_rel}/index.html" target="_blank">📋 CycleGAN Grid</a>
+                </div>
+            </div>
+"""
+        html += """        </div>
+    </section>
+"""
+
+    img_prefix = "" if not is_master else f"{current_rel_path}/"
 
     for i, sid in enumerate(samples):
         html += f"""
@@ -651,23 +818,24 @@ body.light-mode .cell-header {{
 </div>
 
 <script>
+const isMasterDashboard = {"true" if is_master else "false"};
+const currentModelRel = "{current_rel_path}";
 let currentModelPrefix = "{img_prefix}";
 let currentSampleId = "";
 let currentModalKey = "fake_B";
 const sampleKeys = {json.dumps(samples)};
 let currentIdx = 0;
 
-function switchModel(modelPath) {{
-    currentModelPrefix = modelPath + "/";
-    sampleKeys.forEach(sid => {{
-        ['real_A', 'fake_B', 'real_B', 'fake_A'].forEach(k => {{
-            const el = document.getElementById(`img-${{sid}}-${{k}}`);
-            if (el) {{
-                el.src = `${{currentModelPrefix}}images/${{sid}}_${{k}}.png`;
-            }}
-        }});
-    }});
-    if (currentSampleId) updateModal();
+function onModelSelectChange(newModelRel) {{
+    if (newModelRel === "__master__") {{
+        window.location.href = isMasterDashboard ? "index.html" : "../../index.html";
+        return;
+    }}
+    if (isMasterDashboard) {{
+        window.location.href = newModelRel + "/eval.html";
+    }} else {{
+        window.location.href = `../../${{newModelRel}}/eval.html`;
+    }}
 }}
 
 function setImageSize(size, btn) {{
@@ -791,44 +959,48 @@ window.addEventListener('keydown', (e) => {{
 
 def main():
     proj_dir = Path(__file__).resolve().parent
-    
-    models = [
-        ("results/dual_encoder_cyclegan/test_latest", "Dual-Encoder CycleGAN (Latest)"),
-        ("results/cyclegan_ssim/test_latest", "Paired SSIM (lambda=5.0)"),
-        ("results/cyclegan_paired_l1_10/test_200", "Paired L1 (lambda=10.0)"),
-        ("results/cyclegan_paired_l1_p5/test_200", "Paired L1 (lambda=0.5)"),
-        ("results/cyclegan_unaligned/test_latest", "Unpaired CycleGAN (Baseline)")
-    ]
+    results_base = proj_dir / "results"
 
-    models_dict = {
-        "dual_encoder_cyclegan/test_latest": "Dual-Encoder CycleGAN (Latest)",
-        "cyclegan_ssim/test_latest": "Paired SSIM (lambda=5.0)",
-        "cyclegan_paired_l1_10/test_200": "Paired L1 (lambda=10.0)",
-        "cyclegan_paired_l1_p5/test_200": "Paired L1 (lambda=0.5)",
-        "cyclegan_unaligned/test_latest": "Unpaired CycleGAN (Baseline)"
-    }
+    # Automatically discover all test results directories with images/
+    all_img_dirs = sorted(list(results_base.glob("**/images")))
+    all_models_dict = {}
 
-    # Generate for each folder
-    for rel_path, title in models:
-        p = proj_dir / rel_path
-        if p.exists():
-            samples = get_samples_for_model(p)
-            if samples:
-                html = build_html_page(samples, title, is_master=False)
-                out_p = p / "eval.html"
-                out_p.write_text(html, encoding="utf-8")
-                print(f"Created: {out_p} ({len(samples)} samples)")
+    valid_models = []
+    for d in all_img_dirs:
+        model_dir = d.parent
+        rel_path = str(model_dir.relative_to(results_base))
+        samples = get_samples_for_model(model_dir)
+        if samples:
+            title = format_model_title(rel_path)
+            all_models_dict[rel_path] = title
+            valid_models.append((model_dir, rel_path, title, samples))
 
-    # Generate master results/eval.html and results/index.html
-    base_samples = get_samples_for_model(proj_dir / "results/dual_encoder_cyclegan/test_latest")
-    if base_samples:
-        master_html = build_html_page(base_samples, "Multi-Model Dashboard", models_dict=models_dict, is_master=True)
-        
-        master_eval = proj_dir / "results" / "eval.html"
+    print(f"Found {len(valid_models)} valid test result directories in {results_base}:")
+    for _, rel_path, title, samples in valid_models:
+        print(f"  • {rel_path} ({len(samples)} samples): {title}")
+
+    # Generate eval.html inside each model's directory
+    for model_dir, rel_path, title, samples in valid_models:
+        html = build_html_page(samples, rel_path, title, all_models_dict, is_master=False)
+        out_p = model_dir / "eval.html"
+        out_p.write_text(html, encoding="utf-8")
+        print(f"Created: {out_p}")
+
+    # Generate master results/eval.html and results/index.html using the primary model (dual_encoder_cyclegan)
+    primary_samples = get_samples_for_model(results_base / "dual_encoder_cyclegan" / "test_latest")
+    if primary_samples:
+        master_html = build_html_page(
+            primary_samples, 
+            "dual_encoder_cyclegan/test_latest", 
+            all_models_dict.get("dual_encoder_cyclegan/test_latest", "Dual-Encoder CycleGAN"), 
+            all_models_dict, 
+            is_master=True
+        )
+        master_eval = results_base / "eval.html"
         master_eval.write_text(master_html, encoding="utf-8")
-        print(f"Created Master: {master_eval}")
+        print(f"Created Master Dashboard: {master_eval}")
 
-        master_index = proj_dir / "results" / "index.html"
+        master_index = results_base / "index.html"
         master_index.write_text(master_html, encoding="utf-8")
         print(f"Created Master Index: {master_index}")
 
